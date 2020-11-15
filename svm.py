@@ -11,6 +11,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.feature_selection import VarianceThreshold
 from sklearn.linear_model import SGDClassifier
+import pickle
 
 
 def load_DCASE():
@@ -54,34 +55,88 @@ def extract_features(audio_filename, model):
     return features
 
 
-def training(db, layer):
-    clf = SVC(C=10)
+def get_k_fold(db):
+    for fold in db.folds():
+        i = 0
+        train, evaluation = [], []
+        for label in db.scene_labels():
+            for item in db.train(fold=fold).filter(scene_label=label):
+                train.append(i)
+                i += 1
+        for label in db.scene_labels():
+            for item in db.eval(fold=fold).filter(scene_label=label):
+                evaluation.append(i)
+                i += 1
+        yield np.array(train), np.array(evaluation)
+
+def get_training_data(db, layer):
+    X, y = [], []
     features_dir = os.path.join(db.local_path, "features")
-    fold = 1
+    for fold in db.folds():
+        for label in db.scene_labels():
+            for item in db.train(fold=fold).filter(scene_label=label):
+                features_filename = get_features_filename(features_dir, item.filename)
+                x = np.load(features_filename)["layer"+str(layer)]
+                X.append(x)
+                y.append(label)
+        for label in db.scene_labels():
+            for item in db.eval(fold=fold).filter(scene_label=label):
+                features_filename = get_features_filename(features_dir, item.filename)
+                x = np.load(features_filename)["layer"+str(layer)]
+                X.append(x)
+                y.append(label)
+    return np.array(X), np.array(y)
+
+def get_test_data(db, layer):
     X, y = [], []
+    features_dir = os.path.join(db.local_path, "features")
+    for fold in db.folds():
+        for label in db.scene_labels():
+            for item in db.test(fold=fold).filter(scene_label=label):
+                features_filename = get_features_filename(features_dir, item.filename)
+                x = np.load(features_filename)["layer"+str(layer)]
+                X.append(x)
+                y.append(label)
+    return np.array(X), np.array(y)
+
+def training(db, layer):
+    from time import time
+    t1 = time()
+    print("Loading training data...")
+    X, y = get_training_data(db, layer)
+    print(time()-t1, " seconds")
+
+    cv = get_k_fold(db)
+    pipeline = make_pipeline(StandardScaler(), SVC())
+    parameters = [
+        {"svc__C": np.linspace(1e-4,1e-3,num=2), "svc__kernel": ["linear"]},
+        {"svc__C": np.logspace(1e-6,1e2,num=2), "svc__kernel": ["rbf"]}
+    ]
+    clf = GridSearchCV(pipeline, parameters, cv=cv, n_jobs=-1, refit=True, verbose=1)
+    
     t0 = time()
-    for label in db.scene_labels():
-        print(label)
-        for item in db.train(fold=fold).filter(scene_label=label):
-            features_filename = get_features_filename(features_dir, item.filename)
-            x = np.load(features_filename)["layer"+str(layer)]
-            X.append(x)
-            y.append(label)
-    X = np.array(X)
+    print("Fitting the model...")
+    clf.fit(X, y)
+    print(time()-t0, " seconds")
+    print(clf.cv_results_)
+    print("Best params : ", clf.best_params_)
+    print("Best score : ", clf.best_score_)
+    with open("model.pk", "wb") as f:
+        pickle.dump(clf.best_estimator_, f)
+
+    del X
+    del y
     t0 = time()
-    scaler = StandardScaler(copy=False)
-    X_new = scaler.fit_transform(X)
-    clf.fit(X_new, y)
-    print("Training accuracy : ", clf.score(X_new, y))
-    del X_new
-    X, y = [], []
-    for label in db.scene_labels():
-        for item in db.eval(fold=fold).filter(scene_label=label):
-            features_filename = get_features_filename(features_dir, item.filename)
-            x = np.load(features_filename)["layer"+str(layer)]
-            X.append(x)
-            y.append(label)
-    print("Testing accuracy : ", clf.score(scaler.transform(X),y))
+    print("Loading test data...")
+    X_test, y_test = get_test_data(db, layer)
+    print(time()-t0, " seconds")
+    print("Testing model accuracy...")
+    t0 = time()
+    print("Test accuracy : ", clf.score(X_test, y_test))
+    print(time()-t0, " seconds")
+
+    print("Total time spent for GridSearch : ", time()-t1)
+    
 
 db = load_DCASE()
 features_extraction_DCASE(db)

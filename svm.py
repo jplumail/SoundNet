@@ -4,7 +4,7 @@ from soundnet import SoundNet
 from util import preprocess, load_audio
 from time import time
 import os
-from dcase_util.datasets import TUTAcousticScenes_2017_DevelopmentSet
+from dcase_util.datasets import TUTAcousticScenes_2017_DevelopmentSet, TUTAcousticScenes_2017_EvaluationSet
 from sklearn.svm import LinearSVC, SVC
 from sklearn.model_selection import GridSearchCV, cross_val_score
 from sklearn.pipeline import make_pipeline
@@ -14,10 +14,17 @@ from sklearn.linear_model import SGDClassifier
 import pickle
 
 
-def load_DCASE():
+def load_DCASE_development():
     if not os.path.exists("DCASE"):
         os.mkdir("DCASE")
     db = TUTAcousticScenes_2017_DevelopmentSet(data_path="DCASE", filelisthash_exclude_dirs="features")
+    db.initialize()
+    return db
+
+def load_DCASE_evaluation():
+    if not os.path.exists("DCASE"):
+        os.mkdir("DCASE")
+    db = TUTAcousticScenes_2017_EvaluationSet(data_path="DCASE", filelisthash_exclude_dirs="features")
     db.initialize()
     return db
 
@@ -90,13 +97,13 @@ def get_training_data(db, layer):
 def get_test_data(db, layer):
     X, y = [], []
     features_dir = os.path.join(db.local_path, "features")
-    for fold in db.folds():
-        for label in db.scene_labels():
-            for item in db.test(fold=fold).filter(scene_label=label):
-                features_filename = get_features_filename(features_dir, item.filename)
-                x = np.load(features_filename)["layer"+str(layer)]
-                X.append(x)
-                y.append(label)
+    for label in db.scene_labels():
+        print(label)
+        for item in db.test().filter(scene_label=label):
+            features_filename = get_features_filename(features_dir, item.filename)
+            x = np.load(features_filename)["layer"+str(layer)]
+            X.append(x)
+            y.append(label)
     return np.array(X), np.array(y)
 
 def training(db, layer):
@@ -109,10 +116,9 @@ def training(db, layer):
     cv = get_k_fold(db)
     pipeline = make_pipeline(StandardScaler(), SVC())
     parameters = [
-        {"svc__C": np.linspace(1e-4,1e-3,num=2), "svc__kernel": ["linear"]},
-        {"svc__C": np.logspace(1e-6,1e2,num=2), "svc__kernel": ["rbf"]}
+        {"svc__C": np.linspace(1e-3,1e-2,num=10), "svc__kernel": ["linear"]},
     ]
-    clf = GridSearchCV(pipeline, parameters, cv=cv, n_jobs=-1, refit=True, verbose=1)
+    clf = GridSearchCV(pipeline, parameters, cv=cv, n_jobs=-1, refit=True, verbose=2)
     
     t0 = time()
     print("Fitting the model...")
@@ -121,23 +127,35 @@ def training(db, layer):
     print(clf.cv_results_)
     print("Best params : ", clf.best_params_)
     print("Best score : ", clf.best_score_)
-    with open("model.pk", "wb") as f:
+    with open("model4.pk", "wb") as f:
         pickle.dump(clf.best_estimator_, f)
+    return clf
 
-    del X
-    del y
-    t0 = time()
+def evaluating(db, clf, layer):
+    from time import time
     print("Loading test data...")
-    X_test, y_test = get_test_data(db, layer)
-    print(time()-t0, " seconds")
-    print("Testing model accuracy...")
     t0 = time()
-    print("Test accuracy : ", clf.score(X_test, y_test))
-    print(time()-t0, " seconds")
-
-    print("Total time spent for GridSearch : ", time()-t1)
+    X_test, y_test = get_test_data(db, layer)
+    print(time()-t0)
+    scores = []
+    n = 10
+    N = len(X_test)
+    batch = N//n
+    for i in range(n-1):
+        print(i)
+        X, y = X_test[i*batch:(i+1)*batch], y_test[i*batch:(i+1)*batch]
+        scores.append(clf.score(X,y))
+    if n*batch < N:
+        X, y = X_test[n*batch:], y_test[n*batch:]
+        scores.append(clf.score(X,y))
+    scores = np.array(scores)
+    print("Accuracy : ", scores.mean())
+    return scores.mean()
     
 
-db = load_DCASE()
-features_extraction_DCASE(db)
-training(db, 5)
+if __name__ == "__main__":
+    db = load_DCASE_evaluation()
+    features_extraction_DCASE(db)
+    with open("model4.pk", "rb") as f:
+        clf = pickle.load(f)
+    evaluating(db, clf, 4)

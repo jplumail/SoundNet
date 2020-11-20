@@ -1,136 +1,36 @@
-import numpy as np
-import torch
-from soundnet import SoundNet
-from util import preprocess, load_audio
-from time import time
-import os
-from dcase_util.datasets import TUTAcousticScenes_2017_DevelopmentSet, TUTAcousticScenes_2017_EvaluationSet
-from sklearn.svm import LinearSVC, SVC
-from sklearn.model_selection import GridSearchCV, cross_val_score
+import pickle
+from sklearn.svm import SVC
+from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.feature_selection import VarianceThreshold
-from sklearn.linear_model import SGDClassifier
-import pickle
-from joblib import Parallel, delayed
+
+from dcase import get_features_filename, get_training_data, get_test_data, load_DCASE_development, load_DCASE_evaluation, features_extraction_DCASE
 
 
-def load_DCASE_development():
-    if not os.path.exists("DCASE"):
-        os.mkdir("DCASE")
-    db = TUTAcousticScenes_2017_DevelopmentSet(data_path="DCASE", filelisthash_exclude_dirs="features")
-    db.initialize()
-    return db
-
-def load_DCASE_evaluation():
-    if not os.path.exists("DCASE"):
-        os.mkdir("DCASE")
-    db = TUTAcousticScenes_2017_EvaluationSet(data_path="DCASE", filelisthash_exclude_dirs="features")
-    db.initialize()
-    return db
-
-def features_extraction_DCASE(db):
-    features_dir = os.path.join(db.local_path, "features")
-    if not os.path.exists(features_dir):
-        os.mkdir(features_dir)
-    model = SoundNet()
-    model.load_state_dict(torch.load("sound8.pth"))
-    model.eval()
-    for audio_filename in db.audio_files:
-        features_filename = get_features_filename(features_dir, audio_filename)
-        if not os.path.exists(features_filename):
-            x = extract_features(audio_filename, model)
-            save_features(x, features_filename)
-
-def get_features_filename(features_dir, audio_filename):
-    parent, last = os.path.split(audio_filename)
-    features_filename_last = last.replace(".wav", ".npz")
-    features_filename = os.path.join(features_dir, features_filename_last)
-    return features_filename
-
-def save_features(x, feature_filename):
-    features_name = {"layer"+str(i) : x[i] for i in range(len(x))}
-    np.savez(feature_filename, **features_name)
-
-def extract_features(audio_filename, model):
-    sound, sr = load_audio(audio_filename, sr=44100)
-    sound = preprocess(sound, config={"load_size": 44100*10, "phase": "extract"})
-    sound = torch.as_tensor(sound)
-    with torch.no_grad():
-        features = model.forward(sound)
-    features = features[:7] + [features[7][0], features[7][1]]
-    features = [f.numpy().reshape(-1) for f in features]
-    return features
-
-
-def get_k_fold(db, n_jobs=1):
-    for fold in db.folds():
-        i = 0
-        train, evaluation = [], []
-        for label in db.scene_labels():
-            for item in db.train(fold=fold).filter(scene_label=label):
-                train.append(i)
-                i += 1
-        for label in db.scene_labels():
-            for item in db.eval(fold=fold).filter(scene_label=label):
-                evaluation.append(i)
-                i += 1
-        yield np.array(train), np.array(evaluation)
-
-def get_training_data(db, layer, n_jobs=1):
-    features_dir = os.path.join(db.local_path, "features")
-    def get_fold(k):
-        X, y = [], []
-        for label in db.scene_labels():
-            for item in db.train(fold=k).filter(scene_label=label):
-                features_filename = get_features_filename(features_dir, item.filename)
-                x = np.load(features_filename)["layer"+str(layer)]
-                X.append(x)
-                y.append(label)
-        for label in db.scene_labels():
-            for item in db.eval(fold=k).filter(scene_label=label):
-                features_filename = get_features_filename(features_dir, item.filename)
-                x = np.load(features_filename)["layer"+str(layer)]
-                X.append(x)
-                y.append(label)
-        return X, y
-    res = Parallel(n_jobs=n_jobs)(delayed(get_fold)(k) for k in db.folds())
-    X, y = [], []
-    for x in res:
-        X += x[0]
-        y += x[1]
-    return np.array(X), np.array(y)
-
-def get_test_data(db, layer, n_jobs=1):
-    features_dir = os.path.join(db.local_path, "features")
-    def get_label(l):
-        X, y = [], []
-        for item in db.eval().filter(scene_label=l):
-            features_filename = get_features_filename(features_dir, item.filename)
-            x = np.load(features_filename)["layer"+str(layer)]
-            X.append(x)
-            y.append(l)
-        return X, y
-    res = Parallel(n_jobs=n_jobs)(delayed(get_label)(l) for l in db.scene_labels())
-    X, y = [], []
-    for x in res:
-        X += x[0]
-        y += x[1]
-    return np.array(X), np.array(y)
+def save_model(clf, layer):
+    filename = "svm" + "_".join([str(key)+"="+str(val) for key, val in clf.params.items()]) + "_{}" + ".pck"
+    model_path = os.path.join("model", filename)
+    i = 0
+    while os.path.exists(model_path.format(i)):
+        i += 1
+    model_path = model_path.format(i)
+    with open(model_path, "wb") as f:
+        pickle.dump(clf.best_estimator_, f)
+    return model_path
 
 def training(db, layer):
     from time import time
     t1 = time()
     print("Loading training data...")
-    X, y = get_training_data(db, layer, n_jobs=4)
+    X, y = get_training_data(db, layer, n_jobs=2)
     print(time()-t1, " seconds")
 
     cv = get_k_fold(db)
-    pipeline = make_pipeline(StandardScaler(), SVC())
+    pipeline = make_pipeline(StandardScaler(), SVC(kernel="linear"))
     parameters = [
-        {"svc__C": np.linspace(1e-3,4e-3,num=15), "svc__kernel": ["linear"]},
+        {"svc__C": np.linspace(1e-6,1e2,num=10)},
     ]
-    clf = GridSearchCV(pipeline, parameters, cv=cv, n_jobs=-1, refit=True, verbose=2)
+    clf = GridSearchCV(pipeline, parameters, cv=cv, n_jobs=2, refit=True, verbose=2)
     
     t0 = time()
     print("Fitting the model...")
@@ -139,15 +39,14 @@ def training(db, layer):
     print(clf.cv_results_)
     print("Best params : ", clf.best_params_)
     print("Best score : ", clf.best_score_)
-    with open("model4-2.pk", "wb") as f:
-        pickle.dump(clf.best_estimator_, f)
+    save_model(clf, 4)
     return clf
 
 def evaluating(db, clf, layer):
     from time import time
     print("Loading test data...")
     t0 = time()
-    X_test, y_test = get_test_data(db, layer, n_jobs=4)
+    X_test, y_test = get_test_data(db, layer, n_jobs=2)
     print(time()-t0)
     scores = []
     n = 10
@@ -161,16 +60,13 @@ def evaluating(db, clf, layer):
         X, y = X_test[n*batch:], y_test[n*batch:]
         scores.append(clf.score(X,y))
     scores = np.array(scores)
-    print("Accuracy : ", scores.mean())
     return scores.mean()
     
 
 if __name__ == "__main__":
-    #db = load_DCASE_development()
-    #features_extraction_DCASE(db)
-    #clf = training(db, 4)
-    with open("model4.pk", "rb") as f:
-        clf = pickle.load(f)
+    db = load_DCASE_development()
+    features_extraction_DCASE(db)
+    clf = training(db, 4)
     db_eval = load_DCASE_evaluation()
-    X_test, y_test = get_test_data(db, layer, n_jobs=4)
-    clf.predict(X_test[0], )
+    acc = evaluating(db_eval, clf, 4)
+    print("Evaluation accuracy : ", )

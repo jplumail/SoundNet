@@ -12,6 +12,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.feature_selection import VarianceThreshold
 from sklearn.linear_model import SGDClassifier
 import pickle
+from joblib import Parallel, delayed
 
 
 def load_DCASE_development():
@@ -62,7 +63,7 @@ def extract_features(audio_filename, model):
     return features
 
 
-def get_k_fold(db):
+def get_k_fold(db, n_jobs=1):
     for fold in db.folds():
         i = 0
         train, evaluation = [], []
@@ -76,47 +77,59 @@ def get_k_fold(db):
                 i += 1
         yield np.array(train), np.array(evaluation)
 
-def get_training_data(db, layer):
-    X, y = [], []
+def get_training_data(db, layer, n_jobs=1):
     features_dir = os.path.join(db.local_path, "features")
-    for fold in db.folds():
+    def get_fold(k):
+        X, y = [], []
         for label in db.scene_labels():
-            for item in db.train(fold=fold).filter(scene_label=label):
+            for item in db.train(fold=k).filter(scene_label=label):
                 features_filename = get_features_filename(features_dir, item.filename)
                 x = np.load(features_filename)["layer"+str(layer)]
                 X.append(x)
                 y.append(label)
         for label in db.scene_labels():
-            for item in db.eval(fold=fold).filter(scene_label=label):
+            for item in db.eval(fold=k).filter(scene_label=label):
                 features_filename = get_features_filename(features_dir, item.filename)
                 x = np.load(features_filename)["layer"+str(layer)]
                 X.append(x)
                 y.append(label)
+        return X, y
+    res = Parallel(n_jobs=n_jobs)(delayed(get_fold)(k) for k in db.folds())
+    X, y = [], []
+    for x in res:
+        X += x[0]
+        y += x[1]
     return np.array(X), np.array(y)
 
-def get_test_data(db, layer):
+def get_test_data(db, layer, n_jobs=1):
     X, y = [], []
     features_dir = os.path.join(db.local_path, "features")
-    for label in db.scene_labels():
-        print(label)
-        for item in db.test().filter(scene_label=label):
+    def get_label(l):
+        X, y = [], []
+        for item in db.test().filter(scene_label=l):
             features_filename = get_features_filename(features_dir, item.filename)
             x = np.load(features_filename)["layer"+str(layer)]
             X.append(x)
-            y.append(label)
+            y.append(l)
+        return X, y
+    res = Parallel(n_jobs=n_jobs)(delayed(get_label)(l) for l in db.scene_labels())
+    X, y = [], []
+    for x in res:
+        X += x[0]
+        y += x[1]
     return np.array(X), np.array(y)
 
 def training(db, layer):
     from time import time
     t1 = time()
     print("Loading training data...")
-    X, y = get_training_data(db, layer)
+    X, y = get_training_data(db, layer, n_jobs=4)
     print(time()-t1, " seconds")
 
     cv = get_k_fold(db)
     pipeline = make_pipeline(StandardScaler(), SVC())
     parameters = [
-        {"svc__C": np.linspace(1e-3,1e-2,num=10), "svc__kernel": ["linear"]},
+        {"svc__C": np.linspace(1e-3,4e-3,num=15), "svc__kernel": ["linear"]},
     ]
     clf = GridSearchCV(pipeline, parameters, cv=cv, n_jobs=-1, refit=True, verbose=2)
     
@@ -127,7 +140,7 @@ def training(db, layer):
     print(clf.cv_results_)
     print("Best params : ", clf.best_params_)
     print("Best score : ", clf.best_score_)
-    with open("model4.pk", "wb") as f:
+    with open("model4-2.pk", "wb") as f:
         pickle.dump(clf.best_estimator_, f)
     return clf
 
@@ -135,7 +148,7 @@ def evaluating(db, clf, layer):
     from time import time
     print("Loading test data...")
     t0 = time()
-    X_test, y_test = get_test_data(db, layer)
+    X_test, y_test = get_test_data(db, layer, n_jobs=4)
     print(time()-t0)
     scores = []
     n = 10
@@ -154,8 +167,8 @@ def evaluating(db, clf, layer):
     
 
 if __name__ == "__main__":
-    db = load_DCASE_evaluation()
+    db = load_DCASE_development()
     features_extraction_DCASE(db)
-    with open("model4.pk", "rb") as f:
-        clf = pickle.load(f)
-    evaluating(db, clf, 4)
+    clf = training(db, 4)
+    db_eval = load_DCASE_evaluation()
+    score = evaluating(db_eval, clf, 4)

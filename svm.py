@@ -102,11 +102,10 @@ def get_training_data(db, layer, n_jobs=1):
     return np.array(X), np.array(y)
 
 def get_test_data(db, layer, n_jobs=1):
-    X, y = [], []
     features_dir = os.path.join(db.local_path, "features")
     def get_label(l):
         X, y = [], []
-        for item in db.test().filter(scene_label=l):
+        for item in db.eval().filter(scene_label=l):
             features_filename = get_features_filename(features_dir, item.filename)
             x = np.load(features_filename)["layer"+str(layer)]
             X.append(x)
@@ -167,8 +166,11 @@ def evaluating(db, clf, layer):
     
 
 if __name__ == "__main__":
-    db = load_DCASE_development()
-    features_extraction_DCASE(db)
-    clf = training(db, 4)
+    #db = load_DCASE_development()
+    #features_extraction_DCASE(db)
+    #clf = training(db, 4)
+    with open("model4.pk", "rb") as f:
+        clf = pickle.load(f)
     db_eval = load_DCASE_evaluation()
-    score = evaluating(db_eval, clf, 4)
+    X_test, y_test = get_test_data(db, layer, n_jobs=4)
+    clf.predict(X_test[0], )

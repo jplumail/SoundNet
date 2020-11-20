@@ -1,10 +1,11 @@
 import pickle
+import numpy as np
 from sklearn.svm import SVC
 from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from dcase import get_features_filename, get_training_data, get_test_data, load_DCASE_development, load_DCASE_evaluation, features_extraction_DCASE
+from dcase import get_features_filename, get_training_data, get_test_data, load_DCASE_development, load_DCASE_evaluation, features_extraction_DCASE, get_k_fold
 
 
 def save_model(clf, layer):
@@ -28,9 +29,9 @@ def training(db, layer):
     cv = get_k_fold(db)
     pipeline = make_pipeline(StandardScaler(), SVC(kernel="linear"))
     parameters = [
-        {"svc__C": np.linspace(1e-6,1e2,num=10)},
+        {"svc__C": np.linspace(1e-6,1e2,num=20)},
     ]
-    clf = GridSearchCV(pipeline, parameters, cv=cv, n_jobs=2, refit=True, verbose=2)
+    clf = GridSearchCV(pipeline, parameters, cv=cv, n_jobs=4, refit=True, verbose=2)
     
     t0 = time()
     print("Fitting the model...")
@@ -68,5 +69,6 @@ if __name__ == "__main__":
     features_extraction_DCASE(db)
     clf = training(db, 4)
     db_eval = load_DCASE_evaluation()
+    features_extraction_DCASE(db_eval)
     acc = evaluating(db_eval, clf, 4)
     print("Evaluation accuracy : ", )

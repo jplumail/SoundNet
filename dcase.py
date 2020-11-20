@@ -51,7 +51,7 @@ def extract_features(audio_filename, model):
     with torch.no_grad():
         features = model.forward(sound)
     features = features[:7] + [features[7][0], features[7][1]]
-    features = [f.numpy().reshape(-1) for f in features]
+    features = [f.numpy() for f in features]
     return features
 
 
@@ -77,13 +77,13 @@ def get_training_data(db, layer, n_jobs=1):
             for item in db.train(fold=k).filter(scene_label=label):
                 features_filename = get_features_filename(features_dir, item.filename)
                 x = np.load(features_filename)["layer"+str(layer)]
-                X.append(x)
+                X.append(x.reshape(-1))
                 y.append(label)
         for label in db.scene_labels():
             for item in db.eval(fold=k).filter(scene_label=label):
                 features_filename = get_features_filename(features_dir, item.filename)
                 x = np.load(features_filename)["layer"+str(layer)]
-                X.append(x)
+                X.append(x.reshape(-1))
                 y.append(label)
         return X, y
     res = Parallel(n_jobs=n_jobs)(delayed(get_fold)(k) for k in db.folds())
@@ -100,7 +100,7 @@ def get_test_data(db, layer, n_jobs=1):
         for item in db.eval().filter(scene_label=l):
             features_filename = get_features_filename(features_dir, item.filename)
             x = np.load(features_filename)["layer"+str(layer)]
-            X.append(x)
+            X.append(x.reshape(-1))
             y.append(l)
         return X, y
     res = Parallel(n_jobs=n_jobs)(delayed(get_label)(l) for l in db.scene_labels())

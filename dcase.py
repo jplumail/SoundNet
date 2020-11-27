@@ -55,6 +55,10 @@ def extract_features(audio_filename, model):
     return features
 
 
+def mean_time(x):
+    return x.mean(axis=2).reshape(-1)
+
+
 def get_k_fold(db, n_jobs=1):
     for fold in db.folds():
         i = 0
@@ -69,6 +73,7 @@ def get_k_fold(db, n_jobs=1):
                 i += 1
         yield np.array(train), np.array(evaluation)
 
+
 def get_training_data(db, layer, n_jobs=1):
     features_dir = os.path.join(db.local_path, "features")
     def get_fold(k):
@@ -77,13 +82,13 @@ def get_training_data(db, layer, n_jobs=1):
             for item in db.train(fold=k).filter(scene_label=label):
                 features_filename = get_features_filename(features_dir, item.filename)
                 x = np.load(features_filename)["layer"+str(layer)]
-                X.append(x.reshape(-1))
+                X.append(mean_time(x))
                 y.append(label)
         for label in db.scene_labels():
             for item in db.eval(fold=k).filter(scene_label=label):
                 features_filename = get_features_filename(features_dir, item.filename)
                 x = np.load(features_filename)["layer"+str(layer)]
-                X.append(x.reshape(-1))
+                X.append(mean_time(x))
                 y.append(label)
         return X, y
     res = Parallel(n_jobs=n_jobs)(delayed(get_fold)(k) for k in db.folds())
@@ -93,6 +98,7 @@ def get_training_data(db, layer, n_jobs=1):
         y += x[1]
     return np.array(X), np.array(y)
 
+
 def get_test_data(db, layer, n_jobs=1):
     features_dir = os.path.join(db.local_path, "features")
     def get_label(l):
@@ -100,7 +106,7 @@ def get_test_data(db, layer, n_jobs=1):
         for item in db.eval().filter(scene_label=l):
             features_filename = get_features_filename(features_dir, item.filename)
             x = np.load(features_filename)["layer"+str(layer)]
-            X.append(x.reshape(-1))
+            X.append(mean_time(x))
             y.append(l)
         return X, y
     res = Parallel(n_jobs=n_jobs)(delayed(get_label)(l) for l in db.scene_labels())

@@ -77,41 +77,46 @@ def get_k_fold(db, n_jobs=1):
 def get_training_data(db, layer, n_jobs=1):
     features_dir = os.path.join(db.local_path, "features")
     def get_fold(k):
-        X, y = [], []
+        X, y, audio = [], [], []
         for label in db.scene_labels():
             for item in db.train(fold=k).filter(scene_label=label):
                 features_filename = get_features_filename(features_dir, item.filename)
                 x = np.load(features_filename)["layer"+str(layer)]
                 X.append(mean_time(x))
                 y.append(label)
+                audio.append(item.filename)
         for label in db.scene_labels():
             for item in db.eval(fold=k).filter(scene_label=label):
                 features_filename = get_features_filename(features_dir, item.filename)
                 x = np.load(features_filename)["layer"+str(layer)]
                 X.append(mean_time(x))
                 y.append(label)
-        return X, y
+                audio.append(item.filename)
+        return X, y, audio
     res = Parallel(n_jobs=n_jobs)(delayed(get_fold)(k) for k in db.folds())
-    X, y = [], []
+    X, y, audio = [], [], []
     for x in res:
         X += x[0]
         y += x[1]
-    return np.array(X), np.array(y)
+        audio += x[2]
+    return np.array(X), np.array(y), audio
 
 
 def get_test_data(db, layer, n_jobs=1):
     features_dir = os.path.join(db.local_path, "features")
     def get_label(l):
-        X, y = [], []
+        X, y, audio = [], [], []
         for item in db.eval().filter(scene_label=l):
             features_filename = get_features_filename(features_dir, item.filename)
             x = np.load(features_filename)["layer"+str(layer)]
             X.append(mean_time(x))
             y.append(l)
-        return X, y
+            audio.append(item.filename)
+        return X, y, audio
     res = Parallel(n_jobs=n_jobs)(delayed(get_label)(l) for l in db.scene_labels())
-    X, y = [], []
+    X, y, audio = [], [], []
     for x in res:
         X += x[0]
         y += x[1]
-    return np.array(X), np.array(y)
+        audio += x[2]
+    return np.array(X), np.array(y), audio

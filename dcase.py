@@ -7,18 +7,22 @@ from dcase_util.datasets import TUTAcousticScenes_2017_DevelopmentSet, TUTAcoust
 from joblib import Parallel, delayed
 
 
-def load_DCASE_development():
+def init_DCASE():
     if not os.path.exists("DCASE"):
         os.mkdir("DCASE")
-    db = TUTAcousticScenes_2017_DevelopmentSet(data_path="DCASE", filelisthash_exclude_dirs="features")
-    db.initialize()
+    db_dev = TUTAcousticScenes_2017_DevelopmentSet(data_path="DCASE")
+    db_dev.initialize()
+    features_extraction_DCASE(db_dev)
+    db_eval = TUTAcousticScenes_2017_EvaluationSet(data_path="DCASE")
+    db_eval.initialize()
+    features_extraction_DCASE(db_eval)
+
+def load_DCASE_development():
+    db = TUTAcousticScenes_2017_DevelopmentSet(data_path="DCASE")
     return db
 
 def load_DCASE_evaluation():
-    if not os.path.exists("DCASE"):
-        os.mkdir("DCASE")
-    db = TUTAcousticScenes_2017_EvaluationSet(data_path="DCASE", filelisthash_exclude_dirs="features")
-    db.initialize()
+    db = TUTAcousticScenes_2017_EvaluationSet(data_path="DCASE")
     return db
 
 def features_extraction_DCASE(db):

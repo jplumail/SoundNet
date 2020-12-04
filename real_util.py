@@ -19,6 +19,59 @@ from sklearn.metrics import confusion_matrix
 import itertools
 
 label = {0: "Animals", 1: "Natural soundscapes & water sounds",2: "Human non-speech sounds",3:"Interior/domestic sounds" ,4:"Exterior/urban noises"}
+labels_complet = {0: 'dog',
+ 1: 'rooster',
+ 2: 'pig',
+ 3: 'cow',
+ 4: 'frog',
+ 5: 'cat',
+ 6: 'hen',
+ 7: 'insects',
+ 8: 'sheep',
+ 9: 'crow',
+ 10: 'rain',
+ 11: 'sea_waves',
+ 12: 'crackling_fire',
+ 13: 'crickets',
+ 14: 'chirping_birds',
+ 15: 'water_drops',
+ 16: 'wind',
+ 17: 'pouring_water',
+ 18: 'toilet_flush',
+ 19: 'thunderstorm',
+ 20: 'crying_baby',
+ 21: 'sneezing',
+ 22: 'clapping',
+ 23: 'breathing',
+ 24: 'coughing',
+ 25: 'footsteps',
+ 26: 'laughing',
+ 27: 'brushing_teeth',
+ 28: 'snoring',
+ 29: 'drinking_sipping',
+ 30: 'door_wood_knock',
+ 31: 'mouse_click',
+ 32: 'keyboard_typing',
+ 33: 'door_wood_creaks',
+ 34: 'can_opening',
+ 35: 'washing_machine',
+ 36: 'vacuum_cleaner',
+ 37: 'clock_alarm',
+ 38: 'clock_tick',
+ 39: 'glass_breaking',
+ 40: 'helicopter',
+ 41: 'chainsaw',
+ 42: 'siren',
+ 43: 'car_horn',
+ 44: 'engine',
+ 45: 'train',
+ 46: 'church_bells',
+ 47: 'airplane',
+ 48: 'fireworks',
+ 49: 'hand_saw'}
+
+list_difficult_feature = ["water_drops","wind","airplane","washing_machine","helicopter"]
+list_simple_feature = ["door_wood_knock","pouring_water","toilet_flush","sea_waves","thunderstorm"]
 LEN_WAVEFORM = 22050 * 20
 local_config = {
             'batch_size': 64, 
@@ -318,3 +371,61 @@ def plot_confusion_matrix(cm, classes, normalize=False, title='confusion matrix'
     plt.tight_layout()
     plt.ylabel('true label')
     plt.xlabel('predicted label')
+    
+def five_major_class(X,y,labels_complet):
+    X_animals = []
+    y_animals = []
+    y_labels_animals = []
+    X_natural = []
+    y_natural = []
+    y_labels_natural = []
+    X_human = []
+    y_human = []
+    y_labels_human = []
+    X_interior = []
+    y_interior = []
+    y_labels_interior = []
+    X_exterior = []
+    y_exterior = []
+    y_labels_exterior = []
+    for i in range(len(y)):
+      categorie = y[i]//10
+      if(categorie==0):
+        X_animals.append(X[i])
+        y_animals.append(y[i])
+        y_labels_animals.append(labels_complet[y[i]])
+      if(categorie==1):
+        X_natural.append(X[i])
+        y_natural.append(y[i])
+        y_labels_natural.append(labels_complet[y[i]])
+      if(categorie==2):
+        X_human.append(X[i])
+        y_human.append(y[i])
+        y_labels_human.append(labels_complet[y[i]])
+      if(categorie==3):
+        X_interior.append(X[i])
+        y_interior.append(y[i])
+        y_labels_interior.append(labels_complet[y[i]])
+      if(categorie==4):
+        X_exterior.append(X[i])
+        y_exterior.append(y[i])
+        y_labels_exterior.append(labels_complet[y[i]])
+    return X_animals,y_animals,y_labels_animals,X_natural,y_natural,y_labels_natural,X_human,y_human,y_labels_human,X_interior,y_interior,y_labels_interior,X_exterior,y_exterior,y_labels_exterior
+
+def easy_difficult(X,y,labels_complet):
+    X_difficult = []
+    y_difficult = []
+    y_labels_difficult = []
+    X_simple = []
+    y_simple = []
+    y_labels_simple = []
+    for i in range(len(y)):
+      if labels_complet[y[i]] in list_difficult_feature:
+        X_difficult.append(X[i])
+        y_difficult.append(y[i])
+        y_labels_difficult.append(labels_complet[y[i]])
+      if labels_complet[y[i]] in list_simple_feature:
+        X_simple.append(X[i])
+        y_simple.append(y[i])
+        y_labels_simple.append(labels_complet[y[i]])
+    return X_difficult,y_difficult,y_labels_difficult,X_simple,y_simple,y_labels_simple

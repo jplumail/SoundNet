@@ -17,6 +17,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix
 import itertools
+from sklearn.preprocessing import OneHotEncoder
 
 label = {0: "Animals", 1: "Natural soundscapes & water sounds",2: "Human non-speech sounds",3:"Interior/domestic sounds" ,4:"Exterior/urban noises"}
 labels_complet = {0: 'dog',
@@ -429,3 +430,27 @@ def easy_difficult(X,y,labels_complet):
         y_simple.append(y[i])
         y_labels_simple.append(labels_complet[y[i]])
     return X_difficult,y_difficult,y_labels_difficult,X_simple,y_simple,y_labels_simple
+
+
+def neural_matrix(X,y,activation_perc=95):
+  enc = OneHotEncoder()
+  y_enc = enc.fit_transform(y.reshape(-1,1))
+  threshold = np.percentile(X, activation_perc, axis=0)
+  stats = (X > threshold).T @ y_enc
+  return stats, enc
+
+def plot_activation(X, neurons):
+    fig,axes = plt.subplots(1,8,figsize=(20,5),sharey=True)
+    axes[0].set_ylabel("Number of activation")
+    for i,ax in enumerate(axes.ravel()):
+        neuron_idx = neurons[i]
+        neuron = X[:,neuron_idx]
+        indices_sorted = np.argsort(neuron)
+        best_samples = indices_sorted[int(activation_percentage*X.shape[0]):]
+        labels_samples = [labels_complet[k] for k in y[best_samples]]
+        unique, counts = np.unique(labels_samples, return_counts=True)
+        best_labels = counts > 5
+        ax.set_title("neuron {}".format(neuron_idx))
+        ax.xaxis.set_tick_params(rotation=90)
+        ax.bar(unique[best_labels], counts[best_labels])
+    return fig, axes
